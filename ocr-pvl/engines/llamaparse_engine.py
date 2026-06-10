@@ -26,9 +26,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Optional
 
-from apply_metadata import apply_metadata_to_markdown
-from table_form_postprocess import postprocess_final_markdown
-from validate_metadata import validate_metadata_text
+from validation.apply_metadata import apply_metadata_to_markdown
+from processing.table_form_postprocess import postprocess_final_markdown
+from validation.validate_metadata import validate_metadata_text
+
+SOURCE_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _load_dotenv_if_available() -> list[Path]:
@@ -45,9 +47,9 @@ def _load_dotenv_if_available() -> list[Path]:
     """
     loaded_paths: list[Path] = []
     candidates = [
-        Path(__file__).resolve().parent / ".env",
+        SOURCE_ROOT / ".env",
         Path.cwd() / ".env",
-        Path(__file__).resolve().parent.parent / ".env",
+        SOURCE_ROOT.parent / ".env",
     ]
 
     try:
@@ -527,9 +529,9 @@ def parse_with_llamaparse(input_path: str | Path, cfg: Optional[LlamaParseConfig
     loaded_env_paths = _load_dotenv_if_available()
     if not os.getenv("LLAMA_CLOUD_API_KEY"):
         searched_paths = [
-            Path(__file__).resolve().parent / ".env",
+            SOURCE_ROOT / ".env",
             Path.cwd() / ".env",
-            Path(__file__).resolve().parent.parent / ".env",
+            SOURCE_ROOT.parent / ".env",
         ]
         searched = "; ".join(str(p.resolve()) for p in searched_paths)
         loaded = ", ".join(str(p) for p in loaded_env_paths) or "không có"
@@ -570,8 +572,6 @@ def save_llamaparse_markdown(
         markdown,
         md_path=out,
         source_file=input_path,
-        parser="llamaparse",
-        ocr_engine="llamaparse",
         ocr_status="done",
     )
     errors, warnings = validate_metadata_text(markdown)

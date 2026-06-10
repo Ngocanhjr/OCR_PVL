@@ -1,14 +1,16 @@
 """
 hybrid_router.py
 
-Router chọn engine OCR/parser:
-- local: dùng source PadViet hiện tại: main.py -> xu_ly_pdf/xu_ly_file_anh.
-- llamaparse: dùng LlamaParse Agentic/Agentic Plus cho scan, bảng, layout khó.
-- auto: tự chọn sơ bộ dựa trên PDF có text hay không và mật độ bảng.
+Router cấp tài liệu/file cho các input không đi theo luồng PDF TableSafe chính.
+
+Phân ranh với `hybrid_page_router.py`:
+- PDF từ CLI `main.py` luôn đi qua `hybrid_page_router.run_table_safe_pdf()`.
+- File ảnh/DOCX/PPTX/XLSX/CSV/HTML khi cần LlamaParse đi qua `run_document_parse()`.
+- `run_hybrid_parse()` chỉ còn là alias tương thích cho caller cũ.
 
 File này đã được chỉnh theo source OCR_PadViet_main_new.zip:
 - Không dùng `from ocr_engine import process_file` vì source PadViet không có hàm đó.
-- Dùng các hàm thật trong main.py: xu_ly_pdf, xu_ly_file_anh, tao_metadata_markdown.
+- Dùng các hàm thật trong main.py: xu_ly_pdf, xu_ly_file_anh.
 """
 
 from __future__ import annotations
@@ -18,9 +20,9 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Optional
 
-from apply_metadata import apply_metadata_to_markdown
-from llamaparse_engine import LlamaParseConfig, save_llamaparse_markdown
-from validate_metadata import validate_metadata_text
+from validation.apply_metadata import apply_metadata_to_markdown
+from engines.llamaparse_engine import LlamaParseConfig, save_llamaparse_markdown
+from validation.validate_metadata import validate_metadata_text
 
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
@@ -109,15 +111,15 @@ def run_local_paddle_vietocr(
     Hàm xử lý file thật nằm trong main.py, gồm:
     - xu_ly_pdf(...)
     - xu_ly_file_anh(...)
-    - tao_metadata_markdown(...)
+    - apply_metadata_to_markdown(...)
 
     Adapter này tự tạo cấu hình CauHinhOCR, gọi đúng hàm theo đuôi file,
     rồi ghi Markdown ra đúng `output_path` mà main.py yêu cầu.
     """
     from config import CAU_HINH_MAC_DINH, DUOI_ANH, DUOI_PDF, ghi_text_unicode, tao_thu_muc_can_thiet
-    from ctu_terms import canh_bao_thuat_ngu_ctu
-    from main import tao_metadata_markdown, xu_ly_file_anh, xu_ly_pdf
-    from rare_fix import ghi_bao_cao_review, tao_bao_cao_review
+    from normalization.ctu_terms import canh_bao_thuat_ngu_ctu
+    from main import xu_ly_file_anh, xu_ly_pdf
+    from normalization.rare_fix import ghi_bao_cao_review, tao_bao_cao_review
 
     input_path = Path(input_path)
     output_path = Path(output_path)
@@ -135,13 +137,13 @@ def run_local_paddle_vietocr(
 
     ext = input_path.suffix.lower()
     if ext in DUOI_PDF:
-        body, metadata = xu_ly_pdf(input_path, cau_hinh)
+        body, _metadata = xu_ly_pdf(input_path, cau_hinh)
     elif ext in DUOI_ANH:
-        body, metadata = xu_ly_file_anh(input_path, cau_hinh)
+        body, _metadata = xu_ly_file_anh(input_path, cau_hinh)
     else:
         raise ValueError(f"Định dạng local PadViet chưa hỗ trợ: {input_path.suffix}")
 
-    final_md = tao_metadata_markdown(input_path, metadata, cau_hinh) + body
+    final_md = body
     final_md = apply_metadata_to_markdown(
         final_md,
         md_path=output_path,
@@ -165,7 +167,7 @@ def run_local_paddle_vietocr(
     return output_path
 
 
-def run_hybrid_parse(
+def run_document_parse(
     input_path: str | Path,
     output_path: str | Path,
     engine: str = "auto",
@@ -178,7 +180,11 @@ def run_hybrid_parse(
     aggressive_tables: bool = False,
     repair_false_tables: bool = True,
 ) -> Path:
-    """Entry chính: chọn engine và trả ra file Markdown."""
+    """Document-level parser entry for image/doc inputs and legacy callers.
+
+    Use `hybrid_page_router.run_table_safe_pdf()` for the CLI PDF path; that router
+    can split one PDF across local text/OCR pages and LlamaParse table pages.
+    """
     engine = engine.lower().strip()
     input_path = Path(input_path)
     output_path = Path(output_path)
@@ -204,3 +210,33 @@ def run_hybrid_parse(
         return save_llamaparse_markdown(input_path, output_path, cfg)
 
     return run_local_paddle_vietocr(input_path, output_path, page_start, page_end)
+
+
+def run_hybrid_parse(
+    input_path: str | Path,
+    output_path: str | Path,
+    engine: str = "auto",
+    page_start: Optional[int] = None,
+    page_end: Optional[int] = None,
+    llama_tier: str = "agentic",
+    export_tables_as_xlsx: bool = False,
+    preserve_spatial_text: bool = False,
+    disable_cache: bool = False,
+    aggressive_tables: bool = False,
+    repair_false_tables: bool = True,
+) -> Path:
+    """DEPRECATED: compatibility alias for `run_document_parse()`."""
+
+    return run_document_parse(
+        input_path=input_path,
+        output_path=output_path,
+        engine=engine,
+        page_start=page_start,
+        page_end=page_end,
+        llama_tier=llama_tier,
+        export_tables_as_xlsx=export_tables_as_xlsx,
+        preserve_spatial_text=preserve_spatial_text,
+        disable_cache=disable_cache,
+        aggressive_tables=aggressive_tables,
+        repair_false_tables=repair_false_tables,
+    )

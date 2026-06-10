@@ -5,6 +5,10 @@ Router cấp trang cho PDF:
 - Trang văn bản thường: dùng pipeline local TableSafe (PyMuPDF text-only hoặc Paddle+VietOCR).
 - Trang có bảng/lưu đồ thật: dùng LlamaParse để tạo Markdown table/layout.
 
+Phân ranh với `hybrid_router.py`:
+- File PDF từ CLI `main.py` dùng `run_table_safe_pdf()` trong module này.
+- Ảnh và tài liệu không phải PDF khi cần LlamaParse dùng `hybrid_router.run_document_parse()`.
+
 Điểm quan trọng:
 - Không dùng PyMuPDF để tạo bảng.
 - Không gọi LlamaParse cho trang văn bản thường, tránh sinh bảng giả và tiết kiệm credits.
@@ -16,13 +20,13 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Optional
 
-from config import CAU_HINH_MAC_DINH, ghi_text_unicode, tao_thu_muc_can_thiet, ten_file_an_toan, tinh_checksum
-from document_page_analyzer import analyze_pdf_pages, group_contiguous_pages, table_pages_from_signals
-from llamaparse_engine import LlamaParseConfig, parse_with_llamaparse
-from table_form_postprocess import postprocess_final_markdown
-from apply_metadata import apply_metadata_to_markdown
-from validate_metadata import validate_metadata_text
-from page_markers import (
+from config import CAU_HINH_MAC_DINH, ghi_text_unicode, tao_thu_muc_can_thiet
+from pipeline.document_page_analyzer import analyze_pdf_pages, group_contiguous_pages, table_pages_from_signals
+from engines.llamaparse_engine import LlamaParseConfig, parse_with_llamaparse
+from processing.table_form_postprocess import postprocess_final_markdown
+from validation.apply_metadata import apply_metadata_to_markdown
+from validation.validate_metadata import validate_metadata_text
+from processing.page_markers import (
     PAGE_MARKER_RE,
     clean_page_block,
     make_page_block,
@@ -156,30 +160,14 @@ def build_table_safe_metadata(
     llama_pages: list[int],
     engine_mode: str,
 ) -> str:
-    """Tạo metadata đầu file cho output TableSafe."""
-    path = Path(input_path)
-    lines = [
-        "# PDF / Image Text Document",
-        "",
-        "## Metadata",
-        "",
-        f"- Source file: `{path}`",
-        f"- Source name: `{path.name}`",
-        "- Extraction mode: ocr_ctu_tablesafe_v2",
-        "- Parser local: PyMuPDF text-only; no PyMuPDF table extraction",
-        "- Parser table pages: LlamaParse only",
-        "- OCR engine for scan local: PaddleOCR detection + VietOCR recognition; fallback PaddleOCR recognition",
-        f"- Engine mode: {engine_mode}",
-        f"- Source total pages: {total_pages}",
-        f"- Processed pages: {page_start}-{page_end}",
-        f"- Local text/OCR pages: {local_pages}",
-        f"- LlamaParse table pages: {llama_pages}",
-        f"- Checksum: {tinh_checksum(path)}",
-        "",
-        "## Extracted Text",
-        "",
-    ]
-    return "\n".join(lines)
+    """DEPRECATED: compatibility stub for the old TableSafe Markdown header.
+
+    Canonical output metadata now lives in YAML front matter through
+    `apply_metadata_to_markdown()`. This function intentionally returns an empty
+    string and should not be used by new code.
+    """
+
+    return ""
 
 
 def get_pdf_total_pages(pdf_path: str | Path) -> int:
@@ -311,19 +299,9 @@ def run_table_safe_pdf(
                 pass
         page_blocks.update(llama_blocks)
 
-    # 3) Ghép đúng thứ tự trang, kèm log detector để dễ debug.
-    header = build_table_safe_metadata(
-        input_path=input_path,
-        total_pages=total_pages,
-        page_start=start,
-        page_end=end,
-        local_pages=local_pages,
-        llama_pages=llama_pages,
-        engine_mode=engine,
-    )
-    debug_log = "\n".join(f"<!-- layout_analyzer: {line} -->" for line in logs)
+    # 3) Ghép đúng thứ tự trang.
     ordered_blocks = [page_blocks.get(p, make_page_block(p, "[Không tạo được nội dung trang này]")) for p in all_pages]
-    final_md = header + debug_log + "\n\n" + "\n\n---\n\n".join(clean_page_block(b) for b in ordered_blocks).strip() + "\n"
+    final_md = "\n\n---\n\n".join(clean_page_block(b) for b in ordered_blocks).strip() + "\n"
     final_md = postprocess_final_markdown(final_md)
     final_md = apply_metadata_to_markdown(
         final_md,

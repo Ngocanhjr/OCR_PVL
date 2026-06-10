@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from apply_metadata import FIELD_ORDER, iter_markdown_files, is_empty, split_front_matter
+from validation.apply_metadata import FIELD_ORDER, iter_markdown_files, is_empty, split_front_matter
 
 
 ENUMS = {
@@ -27,7 +27,6 @@ ENUMS = {
     },
     "file_type": {"pdf", "docx", "md", "html", "image", "xlsx", "csv", "url", "youtube"},
     "confidentiality": {"public", "internal", "restricted"},
-    "priority": {"low", "medium", "high"},
     "citation_type": {"page", "section", "none"},
     "chunking_strategy": {"heading_aware_parent_child", "qa_based", "asset_based", "manual"},
 }
@@ -42,7 +41,6 @@ AUTO_REQUIRED_FIELDS = {
     "source_file",
     "file_type",
     "language",
-    "priority",
     "citation_type",
     "chunking_strategy",
     "created_at",

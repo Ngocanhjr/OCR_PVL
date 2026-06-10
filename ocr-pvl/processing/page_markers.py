@@ -27,11 +27,6 @@ def page_marker(page_number: int) -> str:
     return f"<!-- page: {int(page_number)} -->"
 
 
-def extraction_marker(method: str) -> str:
-    """Tạo marker phương thức trích xuất dạng comment."""
-    return f"<!-- extraction: {str(method).strip()} -->"
-
-
 def is_page_boundary_line(line: str) -> bool:
     """True nếu dòng là page marker canonical hoặc heading page marker cũ."""
     s = str(line or "").strip()

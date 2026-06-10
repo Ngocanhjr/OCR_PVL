@@ -4,6 +4,9 @@ text_layer_quality.py
 Kiểm tra chất lượng text layer của PDF trước khi quyết định dùng PyMuPDF text
 hay phải OCR lại từ ảnh. Module này không phụ thuộc PaddleOCR, nên PDF text có thể
 chạy được ngay cả khi chưa cài engine OCR nặng.
+
+Đây là nguồn duy nhất cho logic phát hiện text layer lỗi. Không đặt lại logic này
+trong `ocr_engine.py`, vì import OCR engine sẽ kéo các dependency nặng.
 """
 
 from __future__ import annotations

@@ -15,7 +15,6 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
-from typing import Any
 
 from dotenv import load_dotenv
 
@@ -32,17 +31,16 @@ from config import (
     lam_sach_text,
     tao_thu_muc_can_thiet,
     ten_file_an_toan,
-    tinh_checksum,
 )
-from markdown_layout import format_text_sang_markdown, tim_dong_lap, xoa_dong_lap
-from common_fix import hau_xu_ly_loi_chung
-from rare_fix import ghi_bao_cao_review, hau_xu_ly_loi_rieng, tao_bao_cao_review
-from text_layer_quality import is_bad_pdf_text_layer
-from ctu_terms import canh_bao_thuat_ngu_ctu, hau_xu_ly_tu_dien_ctu
-from table_form_postprocess import postprocess_final_markdown
-from page_markers import page_marker
-from apply_metadata import apply_metadata_to_markdown
-from validate_metadata import validate_metadata_text
+from processing.markdown_layout import format_text_sang_markdown, tim_dong_lap, xoa_dong_lap
+from normalization.common_fix import hau_xu_ly_loi_chung
+from normalization.rare_fix import ghi_bao_cao_review, hau_xu_ly_loi_rieng, tao_bao_cao_review
+from processing.text_layer_quality import is_bad_pdf_text_layer
+from normalization.ctu_terms import canh_bao_thuat_ngu_ctu, hau_xu_ly_tu_dien_ctu
+from processing.table_form_postprocess import postprocess_final_markdown
+from processing.page_markers import page_marker
+from validation.apply_metadata import apply_metadata_to_markdown
+from validation.validate_metadata import validate_metadata_text
 
 
 # =========================================================
@@ -107,7 +105,7 @@ def ocr_anh(image_path: str, cau_hinh: CauHinhOCR) -> tuple[str, str]:
     PaddleOCR/VietOCR. Chỉ khi thật sự gặp ảnh hoặc PDF scan mới cần các thư viện OCR nặng.
     """
 
-    from ocr_engine import ocr_anh_bang_paddle_vietocr, ocr_anh_paddle_thuan
+    from engines.ocr_engine import ocr_anh_bang_paddle_vietocr, ocr_anh_paddle_thuan
 
     text = ocr_anh_bang_paddle_vietocr(image_path, cau_hinh)
     method = "paddle_detect_vietocr_recognize"
@@ -177,6 +175,7 @@ def tinh_khoang_trang(total_pages: int, cau_hinh: CauHinhOCR) -> tuple[int, int]
 def xu_ly_pdf(pdf_path: str | Path, cau_hinh: CauHinhOCR) -> tuple[str, dict[str, int]]:
     """Xử lý PDF hybrid: tự chọn PyMuPDF text hoặc OCR theo từng trang."""
 
+    print("3. Bắt đầu xử lý PDF")
     doc = fitz.open(pdf_path)
     file_stem = Path(pdf_path).stem
     total_pages = len(doc)
@@ -273,34 +272,14 @@ def xu_ly_file_anh(image_path: str | Path, cau_hinh: CauHinhOCR) -> tuple[str, d
 
 
 def tao_metadata_markdown(file_path: str | Path, metadata: dict[str, int], cau_hinh: CauHinhOCR) -> str:
-    """Tạo khối metadata Markdown ở đầu file output."""
+    """DEPRECATED: compatibility stub for the old raw Markdown metadata block.
 
-    lines = [
-        "# PDF / Image Text Document",
-        "",
-        "## Metadata",
-        "",
-        f"- Source file: `{file_path}`",
-        f"- Source name: `{Path(file_path).name}`",
-        "- Extraction mode: ocr_ctu_tablesafe_v2",
-        "- Parser: PyMuPDF text only; tables handled by LlamaParse in main.py --engine auto-page",
-        "- OCR engine: PaddleOCR detection + VietOCR recognition; fallback PaddleOCR recognition",
-        f"- OCR language: {cau_hinh.ngon_ngu_ocr}",
-        f"- Render DPI: {cau_hinh.dpi}",
-        f"- Force OCR PDF text layer: {cau_hinh.bo_qua_text_layer_pdf}",
-        f"- Auto skip bad PDF text layer: {cau_hinh.tu_dong_bo_text_layer_loi}",
-        f"- Layout merge mode: {cau_hinh.che_do_gop_dong}",
-        f"- Total pages: {metadata.get('total_pages', 0)}",
-        f"- Total characters: {metadata.get('total_characters', 0)}",
-        f"- PyMuPDF pages: {metadata.get('pymupdf_pages', 0)}",
-        f"- OCR pages: {metadata.get('ocr_pages', 0)}",
-        f"- Table pages routed to LlamaParse: {metadata.get('table_pages', 0)}",
-        f"- Checksum: {tinh_checksum(file_path)}",
-        "",
-        "## Extracted Text",
-        "",
-    ]
-    return "\n".join(lines)
+    Output metadata now belongs in YAML front matter via `gan_yaml_metadata_chuan()`
+    or `apply_metadata_to_markdown()`. This function intentionally returns an empty
+    string and should not be used by new code.
+    """
+
+    return ""
 
 
 def gan_yaml_metadata_chuan(final_md: str, output_path: str | Path, source_path: str | Path, cau_hinh: CauHinhOCR) -> str:
@@ -336,11 +315,11 @@ def xu_ly_mot_file(file_path: str | Path, cau_hinh: CauHinhOCR, force: bool = Fa
 
     print(f"[PROCESS] {path}")
     if ext in DUOI_PDF:
-        body, metadata = xu_ly_pdf(path, cau_hinh)
+        body, _metadata = xu_ly_pdf(path, cau_hinh)
     else:
-        body, metadata = xu_ly_file_anh(path, cau_hinh)
+        body, _metadata = xu_ly_file_anh(path, cau_hinh)
 
-    final_md = tao_metadata_markdown(path, metadata, cau_hinh) + body
+    final_md = body
     final_md = postprocess_final_markdown(final_md)
     final_md = gan_yaml_metadata_chuan(final_md, out_path, path, cau_hinh)
     ghi_text_unicode(out_path, final_md)
@@ -533,11 +512,6 @@ def tao_output_path(input_file: Path, output_value: str | Path) -> Path:
     return out / f"{ten_file_an_toan(input_file.stem)}_structured.md"
 
 
-def can_use_table_safe(input_file: Path, engine: str) -> bool:
-    """Quyết định file có nên chạy router TableSafe cấp trang hay không."""
-    return input_file.suffix.lower() == ".pdf" and engine in {"auto-page", "llamaparse", "local"}
-
-
 def xu_ly_file_bang_cli(input_file: Path, args: argparse.Namespace, force: bool = False) -> Path | None:
     """Xử lý một file theo CLI duy nhất.
 
@@ -558,7 +532,7 @@ def xu_ly_file_bang_cli(input_file: Path, args: argparse.Namespace, force: bool 
     ext = input_file.suffix.lower()
     if ext == ".pdf":
         # Import lazy để tránh vòng import khi hybrid_page_router cần gọi lại main.xu_ly_pdf.
-        from hybrid_page_router import run_table_safe_pdf
+        from pipeline.hybrid_page_router import run_table_safe_pdf
 
         print(f"[PROCESS] PDF TableSafe: {input_file}")
         return run_table_safe_pdf(
@@ -579,10 +553,10 @@ def xu_ly_file_bang_cli(input_file: Path, args: argparse.Namespace, force: bool 
 
     if ext in DUOI_ANH:
         if args.engine == "llamaparse":
-            from hybrid_router import run_hybrid_parse
+            from pipeline.hybrid_router import run_document_parse
 
             print(f"[PROCESS] Image bằng LlamaParse: {input_file}")
-            return run_hybrid_parse(
+            return run_document_parse(
                 input_path=input_file,
                 output_path=output_path,
                 engine="llamaparse",
@@ -597,18 +571,18 @@ def xu_ly_file_bang_cli(input_file: Path, args: argparse.Namespace, force: bool 
             )
 
         print(f"[PROCESS] Image local OCR: {input_file}")
-        body, metadata = xu_ly_file_anh(input_file, cau_hinh)
-        final_md = tao_metadata_markdown(input_file, metadata, cau_hinh) + body
+        body, _metadata = xu_ly_file_anh(input_file, cau_hinh)
+        final_md = body
         final_md = postprocess_final_markdown(final_md)
         final_md = gan_yaml_metadata_chuan(final_md, output_path, input_file, cau_hinh)
         ghi_text_unicode(output_path, final_md)
         return output_path
 
     if args.engine == "llamaparse":
-        from hybrid_router import run_hybrid_parse
+        from pipeline.hybrid_router import run_document_parse
 
         print(f"[PROCESS] Document bằng LlamaParse: {input_file}")
-        return run_hybrid_parse(
+        return run_document_parse(
             input_path=input_file,
             output_path=output_path,
             engine="llamaparse",

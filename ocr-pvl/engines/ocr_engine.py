@@ -15,96 +15,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-import re
-
-
-BAD_OCR_PATTERNS = [
-    "BQ GIAO",
-    "Dl)C",
-    "DAo T~o",
-    "TRUONGD",
-    "D~IHQ",
-    "cANTHa",
-    "DQc l",
-    "H~nh",
-    "QUYETDJNH",
-    "Gido due",
-    "Ludt",
-    "a6i",
-    "b6 sung",
-    "vAn",
-    "sire khoe",
-    "ngO'01",
-    "Di~u",
-    "Can Clf",
-    "thea",
-]
-
-
-EXPECTED_VIETNAMESE_KEYWORDS = [
-    "BỘ GIÁO DỤC",
-    "ĐÀO TẠO",
-    "TRƯỜNG ĐẠI HỌC CẦN THƠ",
-    "CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM",
-    "Độc lập",
-    "Tự do",
-    "Hạnh phúc",
-    "QUYẾT ĐỊNH",
-    "Điều",
-    "Cần Thơ",
-]
-
-
-def is_bad_pdf_text_layer(text: str) -> bool:
-    """
-    Phát hiện PDF scan có text layer OCR cũ bị lỗi.
-    Nếu text layer bị lỗi thì không dùng page.get_text(), mà phải OCR lại từ ảnh.
-    """
-
-    if not text or len(text.strip()) < 50:
-        return True
-
-    sample = text[:3000]
-
-    bad_count = 0
-    for pattern in BAD_OCR_PATTERNS:
-        if pattern in sample:
-            bad_count += 1
-
-    # Đếm ký tự lạ hay xuất hiện khi OCR/encoding hỏng
-    weird_chars = len(re.findall(r"[~\}\{\]\[\)\(]", sample))
-
-    # Đếm từ bị dính liền kiểu TRUONGDAIHOC, CONGHOA, QUYETDJNH
-    glued_upper_words = len(re.findall(r"\b[A-ZĐ]{8,}\b", sample))
-
-    # Tỷ lệ ký tự tiếng Việt có dấu
-    vietnamese_marks = len(re.findall(
-        r"[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễ"
-        r"ìíịỉĩòóọỏõôồốộổỗơờớợởỡ"
-        r"ùúụủũưừứựửữỳýỵỷỹđ"
-        r"ÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄ"
-        r"ÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠ"
-        r"ÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ]",
-        sample
-    ))
-
-    letters = len(re.findall(r"[A-Za-zÀ-ỹĐđ]", sample))
-    mark_ratio = vietnamese_marks / max(letters, 1)
-
-    # Nếu có nhiều mẫu lỗi rõ ràng thì chắc chắn text layer hỏng
-    if bad_count >= 3:
-        return True
-
-    # Nếu nhiều ký tự lạ + ít dấu tiếng Việt
-    if weird_chars >= 8 and mark_ratio < 0.04:
-        return True
-
-    # Nếu nhiều chữ in hoa dính liền bất thường
-    if glued_upper_words >= 5 and mark_ratio < 0.05:
-        return True
-
-    return False
-
 # Set env trước khi import paddle để ổn định CPU Windows.
 os.environ.setdefault("FLAGS_use_mkldnn", "0")
 os.environ.setdefault("FLAGS_enable_mkldnn", "0")
@@ -113,16 +23,9 @@ os.environ.setdefault("FLAGS_enable_onednn", "0")
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 
-try:
-    from paddleocr import PaddleOCR
-except Exception as exc:  # pragma: no cover
-    raise ImportError(
-        "Không import được PaddleOCR. Cài bằng: pip install paddleocr==2.9.1 paddlepaddle"
-    ) from exc
-
 from config import CauHinhOCR, CAU_HINH_MAC_DINH, lam_sach_dong, lam_sach_text, ten_file_an_toan
-from common_fix import hau_xu_ly_loi_chung, nghi_ngo_co_ky_tu_dac_biet
-from image_preprocess import (
+from normalization.common_fix import hau_xu_ly_loi_chung, nghi_ngo_co_ky_tu_dac_biet
+from processing.image_preprocess import (
     crop_box_xoay,
     cv_sang_pil,
     doc_anh_unicode,
@@ -131,7 +34,7 @@ from image_preprocess import (
     xoa_anh_bien_the,
 )
 
-_OCR_ENGINES: dict[str, PaddleOCR] = {}
+_OCR_ENGINES: dict[str, Any] = {}
 _VIETOCR_ENGINE: Any | None = None
 
 
@@ -153,13 +56,20 @@ def ap_dung_moi_truong_paddle(cau_hinh: CauHinhOCR = CAU_HINH_MAC_DINH) -> None:
     os.environ["MKL_NUM_THREADS"] = str(max(1, int(cau_hinh.so_luong_cpu_threads)))
 
 
-def lay_paddle_ocr(cau_hinh: CauHinhOCR = CAU_HINH_MAC_DINH, lang: str | None = None) -> PaddleOCR:
+def lay_paddle_ocr(cau_hinh: CauHinhOCR = CAU_HINH_MAC_DINH, lang: str | None = None) -> Any:
     """Khởi tạo PaddleOCR lazy-load và cache theo ngôn ngữ."""
 
     ap_dung_moi_truong_paddle(cau_hinh)
     selected_lang = str(lang or cau_hinh.ngon_ngu_ocr or "vi").strip() or "vi"
 
     if selected_lang not in _OCR_ENGINES:
+        try:
+            from paddleocr import PaddleOCR
+        except Exception as exc:  # pragma: no cover
+            raise ImportError(
+                "Không import được PaddleOCR. Cài bằng: pip install paddleocr==2.9.1 paddlepaddle==2.6.2"
+            ) from exc
+
         print(f"[INIT] PaddleOCR lang={selected_lang}, gpu={cau_hinh.dung_gpu}")
         base_kwargs = dict(
             use_angle_cls=True,
@@ -190,6 +100,7 @@ def lay_paddle_ocr(cau_hinh: CauHinhOCR = CAU_HINH_MAC_DINH, lang: str | None = 
             except TypeError:
                 engine = PaddleOCR(**base_kwargs)
         _OCR_ENGINES[selected_lang] = engine
+        print("2. Init PaddleOCR xong")
 
     return _OCR_ENGINES[selected_lang]
 
@@ -219,6 +130,7 @@ def lay_vietocr(cau_hinh: CauHinhOCR = CAU_HINH_MAC_DINH) -> Any | None:
         if cau_hinh.vietocr_weights:
             config["weights"] = cau_hinh.vietocr_weights
         _VIETOCR_ENGINE = Predictor(config)
+        print("1. Init VietOCR xong")
         return _VIETOCR_ENGINE
     except Exception as exc:
         print(f"[WARN] Không khởi tạo được VietOCR, fallback PaddleOCR: {exc}")
@@ -340,7 +252,7 @@ def loai_trung_box(boxes: list[list[list[float]]]) -> list[list[list[float]]]:
     return deduped
 
 
-def chay_detect_paddle(engine: PaddleOCR, image_input: Any) -> list[list[list[float]]]:
+def chay_detect_paddle(engine: Any, image_input: Any) -> list[list[list[float]]]:
     """Chạy PaddleOCR detection only và trả danh sách box đã sắp xếp."""
 
     try:
@@ -422,7 +334,7 @@ def duyet_text_paddle(result: Any):
                     queue.append(item)
 
 
-def nhan_dang_crop_paddle(engine: PaddleOCR, crop_image) -> str:
+def nhan_dang_crop_paddle(engine: Any, crop_image) -> str:
     """Nhận dạng lại một crop bằng PaddleOCR recognition, dùng cho dòng có ký tự đặc biệt."""
 
     try:
@@ -452,7 +364,7 @@ def chon_text_tot_hon(viet_text: str, paddle_text: str) -> str:
     return viet_text
 
 
-def nhan_dang_crop(vietocr_engine: Any, paddle_engine: PaddleOCR, crop_image, cau_hinh: CauHinhOCR) -> str:
+def nhan_dang_crop(vietocr_engine: Any, paddle_engine: Any, crop_image, cau_hinh: CauHinhOCR) -> str:
     """Nhận dạng crop bằng VietOCR và fallback PaddleOCR nếu nghi lỗi ký tự đặc biệt."""
 
     if vietocr_engine is not None:

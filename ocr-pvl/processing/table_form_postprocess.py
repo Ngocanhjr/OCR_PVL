@@ -16,7 +16,7 @@ import re
 from typing import Iterable
 
 from config import lam_sach_dong, lam_sach_text, chuan_hoa_de_so_khop
-from page_markers import PAGE_BOUNDARY_RE, is_page_boundary_line, normalize_legacy_page_headings
+from processing.page_markers import PAGE_BOUNDARY_RE, is_page_boundary_line, normalize_legacy_page_headings
 
 
 _TABLE_SEPARATOR_RE = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{1,}:?\s*)+\|?\s*$")

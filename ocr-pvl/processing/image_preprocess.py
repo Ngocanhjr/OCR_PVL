@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
 
 from config import CauHinhOCR, CAU_HINH_MAC_DINH, ten_file_an_toan
 

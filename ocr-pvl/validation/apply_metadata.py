@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 
-OCR_ROOT = Path(__file__).resolve().parent
+OCR_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = OCR_ROOT.parent.parent
 NLCS_ROOT = PROJECT_ROOT / "nlcs" if (PROJECT_ROOT / "nlcs").exists() else OCR_ROOT
 
@@ -41,14 +41,11 @@ FIELD_ORDER = [
     "accessed_date",
     "language",
     "confidentiality",
-    "priority",
     "citation_type",
     "chunking_strategy",
     "created_at",
     "updated_at",
     "checksum",
-    "parser",
-    "ocr_engine",
     "notes",
 ]
 
@@ -107,13 +104,16 @@ FILE_TYPE_BY_EXT = {
 }
 
 OCR_METADATA_RE = re.compile(r"^\s*-\s*([^:]+):\s*(.*)\s*$")
+RAW_OCR_REPORT_HEADER_RE = re.compile(
+    r"\A\s*# PDF / Image Text Document\s*\n+## Metadata\s*\n+.*?^\s*## Extracted Text\s*$\s*",
+    re.MULTILINE | re.DOTALL,
+)
+LAYOUT_ANALYZER_COMMENT_RE = re.compile(r"^\s*<!--\s*layout_analyzer:.*?-->\s*$\n?", re.MULTILINE)
 
 
 @dataclass
 class MetadataOptions:
     source_file: str | None = None
-    parser: str | None = None
-    ocr_engine: str | None = None
     ocr_status: str | None = None
     file_type: str | None = None
     language: str = "vi"
@@ -380,6 +380,14 @@ def looks_like_ocr_output(body: str, ocr_meta: dict[str, str]) -> bool:
     return "## Extracted Text" in body or "<!-- page:" in body or "<!-- extraction:" in body
 
 
+def strip_generated_ocr_report_noise(body: str) -> str:
+    """Remove internal OCR report metadata/debug lines from the user-facing Markdown body."""
+
+    cleaned = RAW_OCR_REPORT_HEADER_RE.sub("", body, count=1)
+    cleaned = LAYOUT_ANALYZER_COMMENT_RE.sub("", cleaned)
+    return cleaned.lstrip("\r\n")
+
+
 def build_metadata(
     md_path: Path,
     existing: dict[str, Any],
@@ -398,20 +406,6 @@ def build_metadata(
     else:
         version_id = current_version
 
-    parser = first_non_empty(
-        args.parser,
-        existing.get("parser"),
-        ocr_meta.get("parser"),
-        format_split_parser(ocr_meta),
-        "",
-    )
-    ocr_engine = first_non_empty(
-        args.ocr_engine,
-        existing.get("ocr_engine"),
-        ocr_meta.get("ocr engine"),
-        ocr_meta.get("ocr engine for scan local"),
-        "",
-    )
     ocr_status = first_non_empty(
         args.ocr_status,
         existing.get("ocr_status"),
@@ -439,14 +433,11 @@ def build_metadata(
             "source_file": path_for_metadata(source_path) if source_path else first_non_empty(existing.get("source_file"), ocr_meta.get("source file"), ""),
             "file_type": detect_file_type(source_path, existing, args.file_type),
             "language": first_non_empty(args.language, existing.get("language"), "vi"),
-            "priority": first_non_empty(existing.get("priority"), "medium"),
             "citation_type": first_non_empty(existing.get("citation_type"), "page"),
             "chunking_strategy": first_non_empty(existing.get("chunking_strategy"), "heading_aware_parent_child"),
             "created_at": first_non_empty(existing.get("created_at"), now_iso()),
             "updated_at": now_iso(),
             "checksum": checksum,
-            "parser": parser,
-            "ocr_engine": ocr_engine,
         }
     )
 
@@ -456,14 +447,6 @@ def build_metadata(
         metadata["confidentiality"] = args.confidentiality
 
     return metadata
-
-
-def format_split_parser(ocr_meta: dict[str, str]) -> str:
-    local = ocr_meta.get("parser local")
-    table = ocr_meta.get("parser table pages")
-    if local and table:
-        return f"local={local}; table_pages={table}"
-    return ""
 
 
 def iter_markdown_files(path: Path, recursive: bool) -> list[Path]:
@@ -479,8 +462,6 @@ def apply_to_file(md_path: Path, args: argparse.Namespace) -> bool:
         text,
         md_path=md_path,
         source_file=args.source_file,
-        parser=args.parser,
-        ocr_engine=args.ocr_engine,
         ocr_status=args.ocr_status,
         file_type=args.file_type,
         language=args.language,
@@ -502,8 +483,6 @@ def apply_metadata_to_markdown(
     markdown: str,
     md_path: str | Path,
     source_file: str | Path | None = None,
-    parser: str | None = None,
-    ocr_engine: str | None = None,
     ocr_status: str | None = None,
     file_type: str | None = None,
     language: str = "vi",
@@ -521,8 +500,6 @@ def apply_metadata_to_markdown(
     existing, body = split_front_matter(markdown)
     options = MetadataOptions(
         source_file=str(source_file) if source_file else None,
-        parser=parser,
-        ocr_engine=ocr_engine,
         ocr_status=ocr_status,
         file_type=file_type,
         language=language,
@@ -531,14 +508,13 @@ def apply_metadata_to_markdown(
         overwrite_auto=overwrite_auto,
     )
     metadata = build_metadata(Path(md_path), existing, body, options)
+    body = strip_generated_ocr_report_noise(body)
     return dump_front_matter(metadata) + body
 
 
 def apply_metadata_to_file(
     md_path: str | Path,
     source_file: str | Path | None = None,
-    parser: str | None = None,
-    ocr_engine: str | None = None,
     ocr_status: str | None = None,
     file_type: str | None = None,
     language: str = "vi",
@@ -553,8 +529,6 @@ def apply_metadata_to_file(
         read_text(path),
         md_path=path,
         source_file=source_file,
-        parser=parser,
-        ocr_engine=ocr_engine,
         ocr_status=ocr_status,
         file_type=file_type,
         language=language,
@@ -571,8 +545,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("path", help="Markdown file or directory.")
     parser.add_argument("--recursive", "-r", action="store_true", help="Process *.md recursively when path is a directory.")
     parser.add_argument("--source-file", help="Original source file used for checksum/source_file.")
-    parser.add_argument("--parser", help="Parser value to write when it cannot be detected.")
-    parser.add_argument("--ocr-engine", help="OCR engine value to write when it cannot be detected.")
     parser.add_argument("--ocr-status", choices=["not_started", "processing", "done", "failed", "need_review", "not_required"])
     parser.add_argument("--file-type", choices=["pdf", "docx", "md", "html", "image", "xlsx", "csv", "url", "youtube"])
     parser.add_argument("--language", default="vi")

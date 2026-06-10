@@ -14,7 +14,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from table_form_postprocess import postprocess_final_markdown
+from processing.table_form_postprocess import postprocess_final_markdown
 
 
 def build_parser() -> argparse.ArgumentParser:
