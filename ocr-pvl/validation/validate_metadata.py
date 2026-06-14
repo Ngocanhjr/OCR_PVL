@@ -13,6 +13,7 @@ ENUMS = {
     "ocr_status": {"not_started", "processing", "done", "failed", "need_review", "not_required"},
     "review_status": {"not_reviewed", "reviewing", "need_fix", "approved", "rejected"},
     "validity_status": {"unchecked", "valid", "expired", "replaced", "unknown"},
+    "version_role": {"base", "replacement", "amendment", "supplement"},
     "rag_status": {"not_indexed", "chunked", "embedded", "indexed", "published", "deactivated", "failed"},
     "document_type": {
         "noi_quy",
@@ -28,7 +29,6 @@ ENUMS = {
     "file_type": {"pdf", "docx", "md", "html", "image", "xlsx", "csv", "url", "youtube"},
     "confidentiality": {"public", "internal", "restricted"},
     "citation_type": {"page", "section", "none"},
-    "chunking_strategy": {"heading_aware_parent_child", "qa_based", "asset_based", "manual"},
 }
 
 AUTO_REQUIRED_FIELDS = {
@@ -42,7 +42,6 @@ AUTO_REQUIRED_FIELDS = {
     "file_type",
     "language",
     "citation_type",
-    "chunking_strategy",
     "created_at",
     "updated_at",
     "checksum",
@@ -63,14 +62,20 @@ OPTIONAL_HUMAN_FIELDS = {
     "effective_date",
     "expiry_date",
     "version",
+    "version_role",
     "replaces",
     "replaced_by",
+    "amends",
+    "amended_by",
+    "supplements",
+    "supplemented_by",
     "source_url",
     "accessed_date",
     "notes",
 }
 
 DATE_FIELDS = {"issued_date", "effective_date", "expiry_date", "accessed_date"}
+VERSION_RELATION_FIELDS = {"replaces", "replaced_by", "amends", "amended_by", "supplements", "supplemented_by"}
 
 
 def scalar(metadata: dict[str, Any], key: str) -> str:
@@ -115,6 +120,13 @@ def validate_metadata_text(text: str) -> tuple[list[str], list[str]]:
             errors.append("audience must be a list")
         elif any(not isinstance(item, str) or not item for item in metadata["audience"]):
             errors.append("audience must contain non-empty strings")
+
+    for field in VERSION_RELATION_FIELDS:
+        if field in metadata and not is_empty(metadata.get(field)):
+            if not isinstance(metadata.get(field), list):
+                errors.append(f"{field} must be a list")
+            elif any(not isinstance(item, str) or not item for item in metadata[field]):
+                errors.append(f"{field} must contain non-empty strings")
 
     if "is_latest" in metadata and not isinstance(metadata.get("is_latest"), bool):
         errors.append("is_latest must be true or false")

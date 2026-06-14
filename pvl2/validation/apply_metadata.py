@@ -29,8 +29,13 @@ FIELD_ORDER = [
     "version",
     "is_latest",
     "validity_status",
+    "version_role",
     "replaces",
     "replaced_by",
+    "amends",
+    "amended_by",
+    "supplements",
+    "supplemented_by",
     "collection_status",
     "ocr_status",
     "review_status",
@@ -42,7 +47,6 @@ FIELD_ORDER = [
     "language",
     "confidentiality",
     "citation_type",
-    "chunking_strategy",
     "created_at",
     "updated_at",
     "checksum",
@@ -64,8 +68,6 @@ HUMAN_NULL_FIELDS = {
     "issued_date",
     "effective_date",
     "expiry_date",
-    "replaces",
-    "replaced_by",
     "accessed_date",
     "notes",
 }
@@ -374,6 +376,14 @@ def first_non_empty(*values: Any) -> Any:
     return None
 
 
+def list_value(value: Any) -> list[Any]:
+    if is_empty(value):
+        return []
+    if isinstance(value, list):
+        return value
+    return [value]
+
+
 def looks_like_ocr_output(body: str, ocr_meta: dict[str, str]) -> bool:
     if ocr_meta:
         return True
@@ -426,6 +436,13 @@ def build_metadata(
             "audience": existing.get("audience") if not is_empty(existing.get("audience")) else ["student"],
             "is_latest": existing.get("is_latest") if isinstance(existing.get("is_latest"), bool) else False,
             "validity_status": first_non_empty(existing.get("validity_status"), "unchecked"),
+            "version_role": first_non_empty(existing.get("version_role"), "base"),
+            "replaces": list_value(existing.get("replaces")),
+            "replaced_by": list_value(existing.get("replaced_by")),
+            "amends": list_value(existing.get("amends")),
+            "amended_by": list_value(existing.get("amended_by")),
+            "supplements": list_value(existing.get("supplements")),
+            "supplemented_by": list_value(existing.get("supplemented_by")),
             "collection_status": first_non_empty(existing.get("collection_status"), "collected"),
             "ocr_status": ocr_status,
             "review_status": first_non_empty(existing.get("review_status"), "not_reviewed"),
@@ -434,7 +451,6 @@ def build_metadata(
             "file_type": detect_file_type(source_path, existing, args.file_type),
             "language": first_non_empty(args.language, existing.get("language"), "vi"),
             "citation_type": first_non_empty(existing.get("citation_type"), "page"),
-            "chunking_strategy": first_non_empty(existing.get("chunking_strategy"), "heading_aware_parent_child"),
             "created_at": first_non_empty(existing.get("created_at"), now_iso()),
             "updated_at": now_iso(),
             "checksum": checksum,
